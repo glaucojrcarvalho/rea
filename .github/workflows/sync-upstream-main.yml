@@ -1,0 +1,58 @@
+name: Sync upstream main
+
+on:
+  schedule:
+    # Twice daily at 09:17 and 21:17 in Kyiv, including DST changes.
+    - cron: "17 9,21 * * *"
+      timezone: "Europe/Kyiv"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # This workflow is intended only for this fork, never for upstream.
+    if: github.repository == 'glaucojrcarvalho/rea'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out fork main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/morluto/rea.git
+          git fetch --no-tags upstream main
+
+      - name: Merge upstream only when new commits exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Fork main already includes all commits from upstream/main; no changes needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git merge --no-edit upstream/main; then
+            git merge --abort || true
+            echo "::error::Automatic upstream merge failed. Resolve the conflict manually; no force push was attempted."
+            exit 1
+          fi
+
+          git push origin HEAD:refs/heads/main
+          echo "Fork main synchronized with upstream/main."
